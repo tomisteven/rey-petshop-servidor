@@ -150,7 +150,7 @@ const seedElRey = async () => {
           cantidad: 0,
           stockAnterior: 0,
           stockNuevo: 0,
-          motivo: 'Carga inicial catálogo El Rey PetShop',
+          motivo: 'Carga inicial catálogo Reycito Petshop',
           usuario: admin._id,
         });
 

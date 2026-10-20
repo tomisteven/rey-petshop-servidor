@@ -1,7 +1,8 @@
- const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 const Sale = require('../models/Sale');
 const Product = require('../models/Product');
 const Expense = require('../models/Expense');
+const { getMonthPeriod, getMonthPeriodFor, getDiaInicioMes } = require('../utils/periodo');
 
 // Helper para obtener el inicio del día en Argentina (UTC-3)
 const getArgStartOfDay = (date = new Date()) => {
@@ -12,7 +13,7 @@ const getArgStartOfDay = (date = new Date()) => {
 };
 
 // Helper para obtener el rango de fechas según el período
-const getDateRange = (period, dateStr, yearStr, monthStr) => {
+const getDateRange = (period, dateStr, yearStr, monthStr, diaInicio = 1) => {
   let start, end;
   const now = new Date();
 
@@ -42,10 +43,15 @@ const getDateRange = (period, dateStr, yearStr, monthStr) => {
       end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000 - 1);
       break;
     case 'monthly':
-      const yStr = yearStr ? parseInt(yearStr) : parseInt(now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).split('-')[0]);
-      const mStr = monthStr ? parseInt(monthStr) - 1 : parseInt(now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).split('-')[1]) - 1;
-      start = new Date(Date.UTC(yStr, mStr, 1, 3, 0, 0, 0));
-      end = new Date(Date.UTC(yStr, mStr + 1, 0, 23, 59, 59, 999) + 3 * 3600 * 1000);
+      if (yearStr && monthStr) {
+        const p = getMonthPeriodFor(diaInicio, parseInt(yearStr), parseInt(monthStr));
+        start = p.start;
+        end = p.end;
+      } else {
+        const p = getMonthPeriod(diaInicio);
+        start = p.start;
+        end = p.end;
+      }
       break;
     case 'annual':
       const yr = yearStr ? parseInt(yearStr) : parseInt(now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).split('-')[0]);
@@ -121,7 +127,8 @@ const buildReportAggregation = async (startDate, endDate, groupByFormat) => {
 const getReport = async (req, res, period, groupByFormat) => {
   try {
     const { date, year, month } = req.query;
-    const { start, end } = getDateRange(period, date, year, month);
+    const diaInicio = await getDiaInicioMes();
+    const { start, end } = getDateRange(period, date, year, month, diaInicio);
 
     const stats = await buildReportAggregation(start, end, groupByFormat);
 
@@ -177,7 +184,8 @@ const getAnnualReport = (req, res) => getReport(req, res, 'annual', '%Y-%m'); //
 const getTopProductsReport = async (req, res) => {
   try {
     const { period, date, year, month } = req.query;
-    const { start, end } = getDateRange(period || 'monthly', date, year, month);
+    const diaInicio = await getDiaInicioMes();
+    const { start, end } = getDateRange(period || 'monthly', date, year, month, diaInicio);
 
     const topProducts = await Sale.aggregate([
       {
@@ -300,15 +308,14 @@ const getDashboardSummary = async (req, res) => {
       { $sort: { _id: 1 } }
     ]);
 
-    // Datos del mes actual
-    const now = new Date();
-    const [y, m] = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).split('-').map(Number);
-    const monthStart = new Date(Date.UTC(y, m - 1, 1, 3, 0, 0, 0));
+    // Datos del mes actual (usa el día de inicio de mes configurado)
+    const diaInicioMes = await getDiaInicioMes();
+    const { start: monthStart, end: monthEnd } = getMonthPeriod(diaInicioMes);
 
     const monthlyStats = await Sale.aggregate([
       {
         $match: {
-          fecha: { $gte: monthStart },
+          fecha: { $gte: monthStart, $lte: monthEnd },
           estado: 'completada'
         }
       },
@@ -735,11 +742,13 @@ const getCashFlow = async (req, res) => {
   try {
     const { year, month } = req.query;
     const now = new Date();
-    const y = year ? parseInt(year) : parseInt(now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).split('-')[0]);
-    const m = month ? parseInt(month) - 1 : parseInt(now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' }).split('-')[1]) - 1;
+    const diaInicio = await getDiaInicioMes();
+    const period = (year && month)
+      ? getMonthPeriodFor(diaInicio, parseInt(year), parseInt(month))
+      : getMonthPeriod(diaInicio, now);
 
-    const start = new Date(Date.UTC(y, m, 1, 3, 0, 0, 0));
-    const end = new Date(Date.UTC(y, m + 1, 0, 23, 59, 59, 999) + 3 * 3600 * 1000);
+    const start = period.start;
+    const end = period.end;
 
     const ventasPorDia = await Sale.aggregate([
       { $match: { fecha: { $gte: start, $lte: end }, estado: 'completada' } },
@@ -781,14 +790,13 @@ const getCashFlow = async (req, res) => {
     const gastosMap = {};
     gastosPorDia.forEach((g) => { gastosMap[g._id] = g.gastos; });
 
-    const daysInMonth = new Date(y, m + 1, 0).getDate();
     const dias = [];
     let totalIngresos = 0;
     let totalGastos = 0;
     let totalVentas = 0;
 
-    for (let d = 1; d <= daysInMonth; d++) {
-      const key = `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    for (let t = start.getTime(); t <= end.getTime(); t += 24 * 60 * 60 * 1000) {
+      const key = new Date(t).toISOString().slice(0, 10);
       const venta = ventasPorDia.find((v) => v._id === key);
       const gasto = gastosMap[key] || 0;
       const ingresos = venta?.ingresos || 0;
@@ -815,7 +823,7 @@ const getCashFlow = async (req, res) => {
     }
 
     res.json({
-      periodo: { year: y, month: m + 1, inicio: start, fin: end },
+      periodo: { year: period.year, month: period.month, inicio: start, fin: end, diaInicio: period.diaInicio },
       totales: {
         ingresos: totalIngresos,
         gastos: totalGastos,
@@ -834,14 +842,28 @@ const getCashFlow = async (req, res) => {
 const getDashboardExtra = async (req, res) => {
   try {
     const now = new Date();
-    const argStr = now.toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
-    const [currentY, currentM] = argStr.split('-').map(Number);
+    const diaInicio = await getDiaInicioMes();
+    const period = getMonthPeriod(diaInicio, now);
+    const offsetMs = (period.diaInicio - 1) * 24 * 60 * 60 * 1000;
 
-    const start12 = new Date(Date.UTC(currentY, currentM - 13, 1, 3, 0, 0, 0));
+    // Inicio del período hace 11 "meses" (según el día de inicio configurado)
+    let hY = period.year;
+    let hM = period.month - 11;
+    while (hM < 1) { hM += 12; hY -= 1; }
+    const start12 = getMonthPeriodFor(diaInicio, hY, hM).start;
+
+    // Agrupamos por "mes fiscal" restando (díaInicio-1) días antes de formatear.
+    const periodKeyExpr = {
+      $dateToString: {
+        format: '%Y-%m',
+        date: { $subtract: ['$fecha', offsetMs] },
+        timezone: 'America/Argentina/Buenos_Aires'
+      }
+    };
 
     const [monthlySales, monthlyExpenses] = await Promise.all([
       Sale.aggregate([
-        { $match: { fecha: { $gte: start12 }, estado: 'completada' } },
+        { $match: { fecha: { $gte: start12, $lte: period.end }, estado: 'completada' } },
         { $unwind: '$items' },
         {
           $group: {
@@ -853,7 +875,7 @@ const getDashboardExtra = async (req, res) => {
         },
         {
           $group: {
-            _id: { $dateToString: { format: '%Y-%m', date: '$fecha', timezone: 'America/Argentina/Buenos_Aires' } },
+            _id: { $dateToString: { format: '%Y-%m', date: { $subtract: ['$fecha', offsetMs] }, timezone: 'America/Argentina/Buenos_Aires' } },
             facturacion: { $sum: '$totalFinal' },
             costoVentas: { $sum: '$costoVenta' },
             tickets: { $sum: 1 }
@@ -861,10 +883,10 @@ const getDashboardExtra = async (req, res) => {
         }
       ]),
       Expense.aggregate([
-        { $match: { fecha: { $gte: start12 } } },
+        { $match: { fecha: { $gte: start12, $lte: period.end } } },
         {
           $group: {
-            _id: { $dateToString: { format: '%Y-%m', date: '$fecha', timezone: 'America/Argentina/Buenos_Aires' } },
+            _id: periodKeyExpr,
             gastos: { $sum: '$monto' }
           }
         }
@@ -874,13 +896,15 @@ const getDashboardExtra = async (req, res) => {
     const monthLabels = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
     const historico = [];
     for (let i = 11; i >= 0; i--) {
-      const d = new Date(currentY, currentM - 1 - i, 1);
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      let dM = period.month - i;
+      let dY = period.year;
+      while (dM < 1) { dM += 12; dY -= 1; }
+      const key = `${dY}-${String(dM).padStart(2, '0')}`;
       const sale = monthlySales.find(s => s._id === key) || { facturacion: 0, costoVentas: 0, tickets: 0 };
       const exp = monthlyExpenses.find(e => e._id === key) || { gastos: 0 };
       historico.push({
         mes: key,
-        nombre: monthLabels[d.getMonth()] + ' ' + String(d.getFullYear()).slice(2),
+        nombre: monthLabels[dM - 1] + ' ' + String(dY).slice(2),
         facturacion: sale.facturacion,
         costoVentas: sale.costoVentas,
         gananciaBruta: sale.facturacion - sale.costoVentas,
@@ -890,9 +914,8 @@ const getDashboardExtra = async (req, res) => {
       });
     }
 
-    const monthStart = new Date(Date.UTC(currentY, currentM - 1, 1, 3, 0, 0, 0));
     const currentMonthExpenses = await Expense.aggregate([
-      { $match: { fecha: { $gte: monthStart } } },
+      { $match: { fecha: { $gte: period.start, $lte: period.end } } },
       {
         $group: {
           _id: '$categoria',
@@ -914,20 +937,22 @@ const getDashboardExtra = async (req, res) => {
       return acc + (needed * p.precioCompra);
     }, 0);
 
-    const dayOfMonth = parseInt(argStr.split('-')[2]);
-    const daysInMonth = new Date(currentY, currentM, 0).getDate();
+    const MS_DAY = 24 * 60 * 60 * 1000;
+    const periodDays = Math.round((period.end.getTime() + 1 - period.start.getTime()) / MS_DAY);
+    const elapsedDays = Math.min(periodDays, Math.max(1, Math.floor((now.getTime() - period.start.getTime()) / MS_DAY) + 1));
     const currentMonthData = historico[historico.length - 1] || { facturacion: 0, gastos: 0, gananciaBruta: 0, gananciaNeta: 0 };
     const prevMonthData = historico.length >= 2 ? historico[historico.length - 2] : { facturacion: 0 };
-    const avgDailyBilling = dayOfMonth > 0 ? currentMonthData.facturacion / dayOfMonth : 0;
-    const projectedBilling = avgDailyBilling * daysInMonth;
+    const avgDailyBilling = elapsedDays > 0 ? currentMonthData.facturacion / elapsedDays : 0;
+    const projectedBilling = avgDailyBilling * periodDays;
 
     res.json({
       historicoMensual: historico,
       mesActual: {
         gastosPorCategoria: currentMonthExpenses,
         gastosTotal: currentMonthExpenses.reduce((acc, e) => acc + e.total, 0),
-        diaDelMes: dayOfMonth,
-        diasEnMes: daysInMonth,
+        diaDelMes: elapsedDays,
+        diasEnMes: periodDays,
+        diaInicioMes: period.diaInicio,
         facturacion: currentMonthData.facturacion,
         gananciaBruta: currentMonthData.gananciaBruta,
         gananciaNeta: currentMonthData.gananciaNeta,

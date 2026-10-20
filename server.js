@@ -90,7 +90,7 @@ app.use('/api/investments', investmentRoutes);
 app.use('/api/system-config', systemConfigRoutes);
 
 app.get('/', (req, res) => {
-  res.send('API de El Rey Petshop funcionando...');
+  res.send('API de Reycito Petshop funcionando...');
 });
 
 // Middlewares de Error

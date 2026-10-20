@@ -7,6 +7,7 @@ const systemConfigSchema = new mongoose.Schema({
   metaFacturacionMensual: { type: Number, default: 4000000, min: 0 },
   margenSueltoDefecto: { type: Number, default: 42, min: 0 },
   pesosPorPunto: { type: Number, default: 200, min: 1 },
+  diaInicioMes: { type: Number, default: 1, min: 1, max: 31 },
 }, { timestamps: true });
 
 module.exports = mongoose.model('SystemConfig', systemConfigSchema);

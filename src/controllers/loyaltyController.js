@@ -5,12 +5,11 @@ const Redemption = require('../models/Redemption');
 const Product = require('../models/Product');
 const StockMovement = require('../models/StockMovement');
 const { getConfigDoc } = require('../utils/loyalty');
+const { getMonthPeriod } = require('../utils/periodo');
 
-const inicioMesArg = () => {
-  const now = new Date(Date.now() - 3 * 3600 * 1000);
-  const y = now.getUTCFullYear();
-  const m = String(now.getUTCMonth() + 1).padStart(2, '0');
-  return new Date(`${y}-${m}-01T03:00:00.000Z`);
+const inicioMesArg = async () => {
+  const config = await getConfigDoc();
+  return getMonthPeriod(config?.diaInicioMes || 1).start;
 };
 
 const getConfig = async (req, res) => {
@@ -84,6 +83,7 @@ const getCustomers = async (req, res) => {
   try {
     const customers = await Customer.find({ activo: true }).sort({ nombre: 1 });
     const ids = customers.map(c => c._id);
+    const inicioMes = await inicioMesArg();
 
     const [totalAgg, mesAgg] = await Promise.all([
       Sale.aggregate([
@@ -91,7 +91,7 @@ const getCustomers = async (req, res) => {
         { $group: { _id: '$cliente', total: { $sum: '$totalFinal' }, ventas: { $sum: 1 }, puntos: { $sum: '$puntosGanados' } } }
       ]),
       Sale.aggregate([
-        { $match: { cliente: { $in: ids }, estado: 'completada', fecha: { $gte: inicioMesArg() } } },
+        { $match: { cliente: { $in: ids }, estado: 'completada', fecha: { $gte: inicioMes } } },
         { $group: { _id: '$cliente', gastoMes: { $sum: '$totalFinal' }, ventasMes: { $sum: 1 } } }
       ])
     ]);
@@ -143,7 +143,7 @@ const getCustomerDetail = async (req, res) => {
     ]);
 
     const mesAgg = await Sale.aggregate([
-      { $match: { cliente: customer._id, estado: 'completada', fecha: { $gte: inicioMesArg() } } },
+      { $match: { cliente: customer._id, estado: 'completada', fecha: { $gte: await inicioMesArg() } } },
       { $group: { _id: null, gastoMes: { $sum: '$totalFinal' }, ventasMes: { $sum: 1 } } }
     ]);
 

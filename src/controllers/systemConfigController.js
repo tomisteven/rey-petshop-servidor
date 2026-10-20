@@ -6,6 +6,7 @@ const serialize = (cfg) => ({
   metaFacturacionMensual: cfg.metaFacturacionMensual,
   margenSueltoDefecto: cfg.margenSueltoDefecto,
   pesosPorPunto: cfg.pesosPorPunto,
+  diaInicioMes: cfg.diaInicioMes,
 });
 
 const getConfig = async (req, res) => {
@@ -21,7 +22,7 @@ const getConfig = async (req, res) => {
 const updateConfig = async (req, res) => {
   try {
     const config = await getSystemConfigDoc();
-    const allowed = ['metaFacturacionDiaria', 'metaGananciaDiaria', 'metaFacturacionMensual', 'margenSueltoDefecto', 'pesosPorPunto'];
+    const allowed = ['metaFacturacionDiaria', 'metaGananciaDiaria', 'metaFacturacionMensual', 'margenSueltoDefecto', 'pesosPorPunto', 'diaInicioMes'];
     let changed = false;
 
     for (const key of allowed) {
@@ -29,6 +30,9 @@ const updateConfig = async (req, res) => {
       const val = Number(req.body[key]);
       if (isNaN(val) || val < 0) {
         return res.status(400).json({ message: `${key} debe ser un número válido y mayor o igual a 0` });
+      }
+      if (key === 'diaInicioMes' && (val < 1 || val > 31)) {
+        return res.status(400).json({ message: 'El día de inicio del mes debe estar entre 1 y 31' });
       }
       config[key] = val;
       changed = true;

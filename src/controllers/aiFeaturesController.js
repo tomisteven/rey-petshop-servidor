@@ -333,7 +333,7 @@ const chatbotCatalogo = async (req, res) => {
       `${p._id}|${p.nombre}|${p.categoria?.nombre || ''}|$${p.precioVenta}|stock:${p.stock}|${p.unidadMedida}`
     ).join('\n');
 
-    const prompt = `Sos el asistente virtual de "El Rey PetShop" (tienda de mascotas en Argentina). Catálogo:\n\n${catalogo}\n\nEl cliente dice: "${mensaje}"\n\nRecomendá productos del catálogo por su ID si corresponden. Respondé con JSON: { "respuesta": "tu mensaje amigable", "productosRecomendados": [ { "id": "...", "motivo": "..." } ] }`;
+    const prompt = `Sos el asistente virtual de "Reycito Petshop" (tienda de mascotas en Argentina). Catálogo:\n\n${catalogo}\n\nEl cliente dice: "${mensaje}"\n\nRecomendá productos del catálogo por su ID si corresponden. Respondé con JSON: { "respuesta": "tu mensaje amigable", "productosRecomendados": [ { "id": "...", "motivo": "..." } ] }`;
 
     const ia = await callWeb(prompt);
 
@@ -604,7 +604,7 @@ const analizarVentas = async (req, res) => {
       `- ${c.nombre}: ${formatMoney(c.facturacion)} / ganancia ${formatMoney(c.ganancia)} (${c.margenPct}%)`
     ).join('\n');
 
-    const prompt = `Sos un analista financiero y experto en retail de mascotas en Argentina. Analizá el rendimiento de la tienda "El Rey PetShop".
+    const prompt = `Sos un analista financiero y experto en retail de mascotas en Argentina. Analizá el rendimiento de la tienda "Reycito Petshop".
 
 PERIODO: ${desde.toISOString().slice(0, 10)} hasta ${hasta.toISOString().slice(0, 10)} (${dias} días)
 VENTAS: ${totalVentas} | FACTURACIÓN: ${formatMoney(facturacion)} | COSTO MERCADERÍA: ${formatMoney(costo)} | GANANCIA ESTIMADA: ${formatMoney(gananciaTotal)} | MARGEN GLOBAL: ${margenGlobal}%
